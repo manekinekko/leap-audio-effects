@@ -1,0 +1,141 @@
+<html>
+<head>
+	<title></title>
+</head>
+<body>
+
+	<script>
+	var FilterSample = {
+		FREQ_MUL: 7000,
+		QUAL_MUL: 30,
+		playing: false
+	};
+	FilterSample.init = function(context){
+		this.context = context;
+	};
+	FilterSample.play = function(buffer) {
+		var source = this.context.createBufferSource();
+		source.buffer = buffer;
+		var filter = this.context.createBiquadFilter();
+		filter.type = 0;
+		filter.frequency.value = 5000;
+		source.connect(filter);
+		filter.connect(this.context.destination);
+		source.noteOn(0);
+		source.loop = true;
+		this.source = source;
+		this.filter = filter;
+	};
+	FilterSample.stop = function() {
+		this.source.noteOff(0);
+	};
+	FilterSample.toggle = function() {
+		this.playing ? this.stop() : this.play();
+		this.playing = !this.playing;
+	};
+	FilterSample.changeFrequency = function(value) {
+		var minValue = 40;
+		var maxValue = this.context.sampleRate / 2;
+		var numberOfOctaves = Math.log(maxValue / minValue) / Math.LN2;
+		var multiplier = Math.pow(2, numberOfOctaves * (value - 1.0));
+		console.log(maxValue * multiplier);
+		this.filter.frequency.value = maxValue * multiplier;
+	};
+	FilterSample.changeQuality = function(value) {
+		this.filter.Q.value = value * this.QUAL_MUL;
+	};
+	FilterSample.toggleFilter = function(status) {
+		try {
+			this.source.disconnect(0);
+			this.filter.disconnect(0);
+		} catch(e){};
+		
+		if (status) {
+			this.source.connect(this.filter);
+			this.filter.connect(this.context.destination);
+		} else {
+			this.source.connect(this.context.destination);
+		}
+	};
+
+	(function (){
+
+		var state = 0,
+		ws,
+		context,
+		oscillator;
+
+			// Support both the WebSocket and MozWebSocket objects
+			if ((typeof(WebSocket) == 'undefined') &&
+				(typeof(MozWebSocket) != 'undefined')) {
+				WebSocket = MozWebSocket;
+		}
+
+		// Create the socket with event handlers
+		function initTheLeap(callback) {
+			//Create and open the socket
+			ws = new WebSocket("ws://localhost:6437/");
+
+			// On successful connection
+			ws.onopen = function(event) {
+				console.log('Connected to WebSocket');
+			};
+
+			// On message received
+			ws.onmessage = function(event) {
+				var obj = JSON.parse(event.data);
+				if(obj.pointables && obj.pointables.length > 0) {
+					var fingerY = obj.pointables[0].tipPosition[1];
+					var fingerZ = obj.pointables[0].tipPosition[2];
+					callback(fingerY/200, fingerZ/200);
+				}
+			};
+
+			// On socket close
+			ws.onclose = function(event) {
+				ws = null;
+				console.log('Connection closed.');
+			}
+
+			//On socket error
+			ws.onerror = function(event) {
+				alert("Received error");
+			};
+		};
+
+		// ----
+
+		var soundRequest = new XMLHttpRequest();
+
+		// http://commons.wikimedia.org/wiki/File:Eco_Pro_Music_demo_01.ogg
+		soundRequest.open("GET", "Eco_Pro_Music_demo_01.ogg", true);
+
+		soundRequest.responseType = "arraybuffer";
+		soundRequest.onload = function () {
+			try {
+				var context = new webkitAudioContext();
+				FilterSample.init(context);
+
+				context.decodeAudioData(soundRequest.response, function (buffer) {
+					FilterSample.play(buffer);
+					FilterSample.toggleFilter(true);
+				}, function (data) {});
+				
+				initTheLeap(function(fingerY, fingerZ){
+					FilterSample.changeFrequency(fingerY);
+					FilterSample.changeQuality(fingerZ);
+				});
+
+			}
+			catch(e) {
+				console.warn('Web Audio API is not supported in this browser');
+			}
+		};
+
+		soundRequest.send();
+
+	}());
+</script>
+
+</body>
+</html>
